@@ -8,6 +8,8 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QFocusEvent
 import queue
 
+from src.settingsdialog import SettingsDialog
+
 def excepthook(exc_type, exc_value, exc_tb):
     tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     print("catched:", tb)
@@ -249,7 +251,7 @@ It is also used when generating later scenes in this chapter as part of the summ
             prompt = prompt +"\n\nThe most recent scene before this one was:\n\n" + chapter.scenesLayout.itemAt(scene_index-1).widget().text.toPlainText()
 
         prompt = prompt + "\n\nYou are now writing the next scene in which the following occurs: " + self.summary.toPlainText() \
-                 + "\n\nPlease write out this scene.\n{{[OUTPUT]}}"
+                 + "\n\ni{story.scene_generation_prompt}\n{{[OUTPUT]}}"
 
         print(prompt)
 
@@ -397,7 +399,7 @@ You can use the AI to automatically generate a summary of the previous chapter's
         for i in range(scenesLayout.count()):
             prompt = prompt + "\n\n" + scenesLayout.itemAt(i).widget().text.toPlainText()
 
-        prompt = prompt + "\n\nPlease summarize this chapter in 200 words or less, focusing on the information that's important for writing future scenes in this story.\n{{[OUTPUT]}}"
+        prompt = prompt + "\n\n{story.chapter_summary_prompt}\n{{[OUTPUT]}}"
 
         print(prompt)
 
@@ -474,9 +476,25 @@ class StoryWriter(QWidget):
         self.buttonsLayout.addWidget(self.export_button)
         self.export_button.setToolTip("Exports the \"end product\" parts of the story as a text file. Summaries are removed.")
 
+        self.settings_button = QPushButton('Settings')
+        self.settings_button.clicked.connect(self.open_settings)
+        self.buttonsLayout.addWidget(self.settings_button)
+
         layout.addLayout(self.buttonsLayout)
 
         self.setLayout(layout)
+
+        # Initialize default prompts
+        self.chapter_summary_prompt = "Please summarize this chapter in 200 words or less, focusing on the information that's important for writing future scenes in this story."
+        self.scene_generation_prompt = "Please write out this scene."
+
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        dialog.set_chapter_summary_prompt(self.chapter_summary_prompt)
+        dialog.set_scene_generation_prompt(self.scene_generation_prompt)
+        if dialog.exec_():
+            self.chapter_summary_prompt = dialog.get_chapter_summary_prompt()
+            self.scene_generation_prompt = dialog.get_scene_generation_prompt()
 
     def addChapter(self):
         Chapter(self)
@@ -489,6 +507,10 @@ class StoryWriter(QWidget):
             jsonData = json.load(f)
         if jsonData is None:
             return
+        if self.chapter_summary_prompt is not None:
+            self.chapter_summary_prompt = jsonData.get("chapter_summary_prompt", self.chapter_summary_prompt)
+        if self.scene_generation_prompt is not None:
+            self.scene_generation_prompt = jsonData.get("scene_generation_prompt", self.scene_generation_prompt)
         self.summary.setPlainTextAndTokens(jsonData.get("summary", ""), int(jsonData.get("summaryTokens", -1)))
         self.title.setText(jsonData["title"])
         for widget in self.scrollContent.findChildren(QWidget):
@@ -501,6 +523,8 @@ class StoryWriter(QWidget):
         filename = sanitize_filename(self.title.text())
         jsonData = {}
         jsonData["title"] = self.title.text()
+        jsonData["chapter_summary_prompt"] = self.chapter_summary_prompt
+        jsonData["scene_generation_prompt"] = self.scene_generation_prompt
         jsonData["summary"] = self.summary.toPlainText()
         jsonData["summaryTokens"] = self.summary.tokenCount
         jsonData["chapters"] = []
