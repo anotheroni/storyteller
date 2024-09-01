@@ -3,7 +3,7 @@ import json
 import re
 import sys
 
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QMenuBar, QAction, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QFocusEvent
 import queue
@@ -418,14 +418,42 @@ You can use the AI to automatically generate a summary of the previous chapter's
 def sanitize_filename(filename):
     return re.sub(r'(?u)[^-\w.]', '_', filename)
 
-class StoryWriter(QWidget):
+class StoryWriter(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle('Story writer')
 
+        # Create a menu bar
+        menubar = QMenuBar(self)
+        self.setMenuBar(menubar)
+
+        # Create file menu
+        file_menu = menubar.addMenu("File")
+        new_action = QAction("New", self)
+        load_action = QAction("Load", self)
+        save_action = QAction("Save", self)
+        export_action = QAction("Export", self)
+        exit_action = QAction("Exit", self)
+
+        # Connect actions to menu items
+        file_menu.addAction(new_action)
+        file_menu.addAction(load_action)
+        file_menu.addAction(save_action)
+        file_menu.addAction(export_action)
+        file_menu.addAction(exit_action)
+
+        # Story menu
+        settings_menu = menubar.addMenu("Story")
+        settings_action = QAction("Settings", self)
+        settings_menu.addAction(settings_action)
+        new_chapter_action = QAction('Add a new Chapter', self)
+        settings_menu.addAction(new_chapter_action)
+
+        # Create main layout
         layout = QVBoxLayout()
 
+        # Title input
         self.title = QLineEdit()
         self.title.setPlaceholderText('Title')
         self.title.setStyleSheet(exportedStylesheet)
@@ -433,6 +461,7 @@ class StoryWriter(QWidget):
 
         self.title.setToolTip("The title of the story. This is also currently used as the filename when saving or exporting the story.")
 
+        # Summary input
         summary = QWidget()
         summaryLayout = QFormLayout()
         self.summary = TokenizedTextEdit()
@@ -445,6 +474,7 @@ class StoryWriter(QWidget):
 
         summary.setToolTip("Background information is always added at the top of prompts sent to the LLM.")
 
+        # Scroll area for chapters
         self.scrollArea = QScrollArea(self)
         self.scrollArea.setWidgetResizable(True)
 
@@ -453,36 +483,23 @@ class StoryWriter(QWidget):
         self.scrollContent.setLayout(self.chapterLayout)
         self.scrollArea.setWidget(self.scrollContent)
         self.scrollArea.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        
+
         layout.addWidget(self.scrollArea)
 
-        self.buttonsLayout = QHBoxLayout()
+        # Set main layout
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
 
-        self.new_chapter_button = QPushButton('Add a new Chapter')
-        self.new_chapter_button.clicked.connect(self.addChapter)
-        self.buttonsLayout.addWidget(self.new_chapter_button)
-
-        self.save_button = QPushButton('Save')
-        self.save_button.clicked.connect(self.saveStory)
-        self.buttonsLayout.addWidget(self.save_button)
-        self.save_button.setToolTip("Because the programmer is lazy this currently just saves the current story as a file called title.json")
-
-        self.load_button = QPushButton('Load')
-        self.load_button.clicked.connect(self.loadStory)
-        self.buttonsLayout.addWidget(self.load_button)
-
-        self.export_button = QPushButton('Export Text')
-        self.export_button.clicked.connect(self.exportStory)
-        self.buttonsLayout.addWidget(self.export_button)
-        self.export_button.setToolTip("Exports the \"end product\" parts of the story as a text file. Summaries are removed.")
-
-        self.settings_button = QPushButton('Settings')
-        self.settings_button.clicked.connect(self.open_settings)
-        self.buttonsLayout.addWidget(self.settings_button)
-
-        layout.addLayout(self.buttonsLayout)
-
-        self.setLayout(layout)
+        # Connect actions to functions
+        new_action.triggered.connect(self.newStory)
+        load_action.triggered.connect(self.loadStory)
+        save_action.triggered.connect(self.saveStory)
+        export_action.triggered.connect(self.exportStory)
+        exit_action.triggered.connect(self.quit_app)
+        settings_action.triggered.connect(self.open_settings)
+        new_chapter_action.triggered.connect(self.addChapter)
+        self.closeEvent = self.quit_app
 
         # Initialize default prompts
         self.chapter_summary_prompt = "Please summarize this chapter in 200 words or less, focusing on the information that's important for writing future scenes in this story."
@@ -495,6 +512,13 @@ class StoryWriter(QWidget):
         if dialog.exec_():
             self.chapter_summary_prompt = dialog.get_chapter_summary_prompt()
             self.scene_generation_prompt = dialog.get_scene_generation_prompt()
+
+    def newStory(self):
+        # TODO reomve old to create a new story
+        pass
+
+    def quit_app(self, event=None):
+        sys.exit()
 
     def addChapter(self):
         Chapter(self)
