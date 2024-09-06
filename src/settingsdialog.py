@@ -1,12 +1,26 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QPushButton, QTextEdit
+from PyQt5.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QFormLayout, QPushButton, QTextEdit, QLineEdit
+
+from src.tokenizedtextedit import TokenizedTextEdit
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Story Teller Settings")
+        self.storywriter = parent
+        self.setWindowTitle("Story Writer Settings")
         self.layout = QVBoxLayout(self)
 
         form_layout = QFormLayout()
+
+        # Title input
+        self.title = QLineEdit(self.storywriter.storytitle)
+        form_layout.addRow("Title", self.title)
+        self.title.setToolTip("The title of the story. This is also currently used as the filename when saving or exporting the story.")
+
+        # Summary input
+        self.summary = TokenizedTextEdit(parent.global_worker)
+        self.summary.setText(self.storywriter.summary)
+        form_layout.addRow("Background\nInformation", self.summary)
+        self.summary.setToolTip("Background information is always added at the top of prompts sent to the LLM.")
 
         self.chapter_summary_prompt = QTextEdit()
         self.chapter_summary_prompt.setPlaceholderText("Enter prompt for chapter summary generation")
@@ -18,9 +32,20 @@ class SettingsDialog(QDialog):
 
         self.layout.addLayout(form_layout)
 
-        save_button = QPushButton("Save")
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("OK")
         save_button.clicked.connect(self.accept)
-        self.layout.addWidget(save_button)
+        button_layout.addWidget(save_button)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+
+        self.layout.addLayout(button_layout)
+
+    def accept(self):
+        self.storywriter.storytitle = self.title.text()
+        self.storywriter.summary = self.summary.toPlainText()
+        super().accept()
 
     def get_chapter_summary_prompt(self):
         return self.chapter_summary_prompt.toPlainText()
