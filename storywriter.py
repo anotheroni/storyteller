@@ -3,18 +3,19 @@ import re
 import sys
 import traceback
 
-from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QMenuBar, QAction, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QMenuBar, QAction, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy, QMessageBox, QComboBox, QToolButton, QMenu
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QFocusEvent
 import queue
 
-from src.llm import CountTask, GenerateTask
+from src.llm import CountTask, GenerateTask, LLMManager
 from src.settingsdialog import SettingsDialog
 from src.tokenizedtextedit import TokenizedTextEdit
+from src.llmsettingsdialog import LLMSettingsDialog
 
 def excepthook(exc_type, exc_value, exc_tb):
     tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-    print("catched:", tb)
+    print("caught:", tb)
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 sys.excepthook = excepthook
@@ -39,8 +40,7 @@ class Worker(QObject):
     def addTask(self, task):
         self.tasks.put(task)
         if not global_thread.isRunning():
-            global_thread.start() #There seems to be a race condition preventing this from restarting the thread
-            #when counting tokens on a freshly-generated scene text. I'll fix it later, this is a minor issue for now.
+            global_thread.start()
 
     @pyqtSlot()
     def processNextTask(self):
@@ -57,18 +57,18 @@ global_thread = QThread()
 #####################################
 ## UI
 
-#Note to self: update Scene to have a root widget rather than adding things directly to its layout
 class Scene(QWidget):
     sceneTextResponseReady = pyqtSignal(str)
     def __init__(self, parentChapter, sceneData=None):
         super().__init__()
         self.parentChapter = parentChapter
+        self.global_worker = self.parentChapter.parentStory.global_worker
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
         self.parentChapter.scenesLayout.addWidget(self)
 
         self.textLayout = QGridLayout()
-        self.summary = TokenizedTextEdit(self.parentChapter.parentStory.global_worker)
+        self.summary = TokenizedTextEdit(self.global_worker)
         self.summary.setPlaceholderText("Scene Summary")
         self.summary.setMinimumHeight(100)
         self.textLayout.addWidget(QLabel("Scene Summary"),0,0)
@@ -77,7 +77,7 @@ class Scene(QWidget):
         self.summary.setToolTip("""This text is sent to the LLM to tell it what this scene is supposed to depict.
 It is also used when generating later scenes in this chapter as part of the summary of how the chapter has progressed to this point.""")
 
-        self.text = TokenizedTextEdit(self.parentChapter.parentStory.global_worker)
+        self.text = TokenizedTextEdit(self.global_worker)
         self.text.setPlaceholderText("Text")
         self.text.setStyleSheet(exportedStylesheet)
         self.text.setToolTip("""This is the finished output text for this story.""")
@@ -87,25 +87,45 @@ It is also used when generating later scenes in this chapter as part of the summ
         self.textLayout.addWidget(self.text,1,1)
 
         self.layout.addLayout(self.textLayout)
-        
-        buttons = QHBoxLayout()
 
-        self.move_up = QPushButton("Move up")
-        self.move_up.clicked.connect(self.moveSceneUp)
-        buttons.addWidget(self.move_up)
-        self.move_down = QPushButton("Move down")
-        self.move_down.clicked.connect(self.moveSceneDown)
-        buttons.addWidget(self.move_down)
+        # Optimized buttons
+        buttons_layout = QHBoxLayout()
 
-        self.generate_button = QPushButton('Generate text of this scene')
-        self.generate_button.clicked.connect(self.generateScene)
-        buttons.addWidget(self.generate_button)
+        # Move/Remove Dropdown next to Scene Summary label
+        self.move_remove_button = QToolButton()
+        self.move_remove_button.setText('Options')
+        self.move_remove_button.setPopupMode(QToolButton.InstantPopup)
+        self.move_remove_menu = QMenu()
 
-        self.delete_button = QPushButton('Remove this scene')
-        self.delete_button.clicked.connect(self.deleteScene)
-        buttons.addWidget(self.delete_button)
+        move_up_action = QAction('Move Up', self)
+        move_up_action.triggered.connect(self.moveSceneUp)
+        self.move_remove_menu.addAction(move_up_action)
 
-        self.layout.addLayout(buttons)
+        move_down_action = QAction('Move Down', self)
+        move_down_action.triggered.connect(self.moveSceneDown)
+        self.move_remove_menu.addAction(move_down_action)
+
+        remove_action = QAction('Remove Scene', self)
+        remove_action.triggered.connect(self.deleteScene)
+        self.move_remove_menu.addAction(remove_action)
+
+        self.move_remove_button.setMenu(self.move_remove_menu)
+        self.textLayout.addWidget(self.move_remove_button, 0, 0, alignment=Qt.AlignLeft)
+
+        # Generate Dropdown next to Text label
+        self.generate_button = QToolButton()
+        self.generate_button.setText('Generate')
+        self.generate_button.setPopupMode(QToolButton.InstantPopup)
+        self.generate_menu = QMenu()
+
+        # Add LLM options
+        for llm in self.parentChapter.parentStory.llm_manager.llms:
+            action = QAction(f'Generate with {llm.name}', self)
+            action.triggered.connect(lambda checked, llm=llm: self.generateScene(llm))
+            self.generate_menu.addAction(action)
+
+        self.generate_button.setMenu(self.generate_menu)
+        self.textLayout.addWidget(self.generate_button, 0, 1, alignment=Qt.AlignLeft)
 
         if sceneData:
             self.summary.setPlainTextAndTokens(sceneData["summary"], int(sceneData.get("summaryTokens", -1)))
@@ -117,7 +137,7 @@ It is also used when generating later scenes in this chapter as part of the summ
         self.deleteLater()
         return
 
-    def generateScene(self):
+    def generateScene(self, llm):
         chapter = self.parentChapter
         story = chapter.parentStory
         chapter_index = None
@@ -131,12 +151,11 @@ It is also used when generating later scenes in this chapter as part of the summ
                 scene_index = i
                 break
 
-        #print("chapter index " + str(chapter_index))
-        #print("scene index " + str(scene_index))
-
         prompt = "{{[INPUT]}}\nYou are to take the role of an author writing a story. The story is titled \"" + story.title.text() + "\"."
         if len(story.summary.toPlainText()) > 0:
             prompt = prompt + "\n\nGeneral background information: " + story.summary.toPlainText()
+        if len(story.genre.text()) > 0:
+            prompt = prompt + "\n\nGenre: " + story.genre.text()
         prompt = prompt + "\n\nThe story so far has had the following major events happen:"
         for c in range(chapter_index + 1):
             chapter = story.chapterLayout.itemAt(c).widget()
@@ -150,11 +169,11 @@ It is also used when generating later scenes in this chapter as part of the summ
             prompt = prompt +"\n\nThe most recent scene before this one was:\n\n" + chapter.scenesLayout.itemAt(scene_index-1).widget().text.toPlainText()
 
         prompt = prompt + "\n\nYou are now writing the next scene in which the following occurs: " + self.summary.toPlainText() \
-                 + "\n\ni{story.scene_generation_prompt}\n{{[OUTPUT]}}"
+                     + "\n\n" + story.scene_generation_prompt + "\n{{[OUTPUT]}}"
 
         print(prompt)
 
-        task = GenerateTask(prompt, self)
+        task = GenerateTask(prompt, self, llm)
         self.global_worker.addTask(task)
         self.text.setPlainTextAndTokens("Generating...", 0)
 
@@ -203,7 +222,7 @@ class Chapter(QFrame):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
         self.parentStory = parentStory
-        
+
         title = QFormLayout()
 
         self.title = QLineEdit()
@@ -218,8 +237,18 @@ class Chapter(QFrame):
         self.summary.setMinimumHeight(100)
         self.summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         summaryLabel = QLabel('Summary of the\nprevious chapter:')
-        generate_previous_button = QPushButton("Generate summary\nof previous chapter")
-        generate_previous_button.clicked.connect(self.generateSummary)
+        generate_previous_button = QToolButton()
+        generate_previous_button.setText('Generate')
+        generate_previous_button.setPopupMode(QToolButton.InstantPopup)
+        generate_menu = QMenu()
+
+        # Add LLM options
+        for llm in self.parentStory.llm_manager.llms:
+            action = QAction(f'Generate with {llm.name}', self)
+            action.triggered.connect(lambda checked, llm=llm: self.generateSummary(llm))
+            generate_menu.addAction(action)
+
+        generate_previous_button.setMenu(generate_menu)
 
         summaryContainer = QWidget()
         summaryContainerLayout = QGridLayout()
@@ -233,14 +262,14 @@ Adding a summary of the "previous chapter" to the first chapter can be useful to
 such as a description of how the characters got into the initial situation they first find themselves in.
 You can use the AI to automatically generate a summary of the previous chapter's text, but it's good to review and edit it to ensure it focuses on what you consider important.""")
         self.chapterSummaryTextResponseReady.connect(self.updateSummaryText)
-        
+
         self.layout.addWidget(summaryContainer)
 
         self.scenesWidget = QWidget()
         self.scenesLayout = QVBoxLayout()
         self.scenesLayout.setContentsMargins(20,0,0,0)
         self.scenesWidget.setLayout(self.scenesLayout)
-        
+
         self.layout.addWidget(self.scenesWidget)
 
         buttons = QHBoxLayout()
@@ -248,7 +277,6 @@ You can use the AI to automatically generate a summary of the previous chapter's
         self.add_scene_button = QPushButton("Add a new scene to this chapter")
         self.add_scene_button.clicked.connect(self.addScene)
         buttons.addWidget(self.add_scene_button)
-
 
         self.delete_button = QPushButton('Remove this chapter')
         self.delete_button.clicked.connect(self.deleteChapter)
@@ -263,7 +291,6 @@ You can use the AI to automatically generate a summary of the previous chapter's
                 Scene(self, sceneData)
 
         self.parentStory.chapterLayout.addWidget(self)
-        #self.parentStory.chapterLayout.update()
         self.parentStory.scrollContent.adjustSize()
 
     def deleteChapter(self):
@@ -275,7 +302,7 @@ You can use the AI to automatically generate a summary of the previous chapter's
     def addScene(self):
         Scene(self)
 
-    def generateSummary(self):
+    def generateSummary(self, llm):
         chapter = self
         story = chapter.parentStory
         chapter_index = None
@@ -284,7 +311,7 @@ You can use the AI to automatically generate a summary of the previous chapter's
                 chapter_index = i
                 break
         if chapter_index == 0:
-            return ##Temporary hack, need to disable this button on the first chapter
+            return
 
         chapter_index = chapter_index - 1
 
@@ -293,25 +320,26 @@ You can use the AI to automatically generate a summary of the previous chapter's
         prompt = "{{[INPUT]}}\nYou are to take the role of an author writing a story. The story is titled \"" + story.title.text() + "\"."
         if len(story.summary.toPlainText()) > 0:
             prompt = prompt + "\nGeneral background information: " + story.summary.toPlainText()
+        if len(story.genre.text()) > 0:
+            prompt = prompt + "\n\nGenre: " + story.genre.text()
         prompt = prompt + "\n\nThe most recent chapter of the story is:"
         scenesLayout = story.chapterLayout.itemAt(chapter_index).widget().scenesLayout
         for i in range(scenesLayout.count()):
             prompt = prompt + "\n\n" + scenesLayout.itemAt(i).widget().text.toPlainText()
 
-        prompt = prompt + "\n\n{story.chapter_summary_prompt}\n{{[OUTPUT]}}"
+        prompt = prompt + "\n\n" + story.chapter_summary_prompt + "\n{{[OUTPUT]}}"
 
         print(prompt)
 
-        task = GenerateTask(prompt, self)
-        self.global_worker.addTask(task)
+        task = GenerateTask(prompt, self, llm)
+        self.parentStory.global_worker.addTask(task)
         self.summary.setPlainTextAndTokens("Generating...", 0)
 
     def onResponseGenerated(self, response):
-        self.chapterSummaryTextResponseReady.emit(response) # PyQt can't handle updates to the UI from other threads, need to route it through a signal
+        self.chapterSummaryTextResponseReady.emit(response)
 
     def updateSummaryText(self, response):
         self.summary.setPlainText(response)
-
 
 
 def sanitize_filename(filename):
@@ -322,7 +350,7 @@ class StoryWriter(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle('Story writer')
+        self.setWindowTitle('Story Writer')
 
         self.storytitle = ""
         self.summary = ""
@@ -332,6 +360,10 @@ class StoryWriter(QMainWindow):
         self.global_worker.moveToThread(global_thread)
         global_thread.started.connect(self.global_worker.processNextTask)
         self.global_worker.finished.connect(global_thread.quit)
+
+        # LLM Manager
+        self.llm_manager = LLMManager()
+        self.llm_manager.load_llm_config()
 
         # Create a menu bar
         menubar = QMenuBar(self)
@@ -344,6 +376,7 @@ class StoryWriter(QMainWindow):
         save_action = QAction("Save", self)
         export_action = QAction("Export", self)
         exit_action = QAction("Exit", self)
+        llm_settings_action = QAction("LLM", self)
 
         # Connect actions to menu items
         file_menu.addAction(new_action)
@@ -351,6 +384,7 @@ class StoryWriter(QMainWindow):
         file_menu.addAction(save_action)
         file_menu.addAction(export_action)
         file_menu.addAction(exit_action)
+        file_menu.addAction(llm_settings_action)
 
         # Story menu
         settings_menu = menubar.addMenu("Story")
@@ -361,7 +395,6 @@ class StoryWriter(QMainWindow):
 
         # Create main layout
         layout = QVBoxLayout()
-
 
         # Scroll area for chapters
         self.scrollArea = QScrollArea(self)
@@ -388,11 +421,36 @@ class StoryWriter(QMainWindow):
         exit_action.triggered.connect(self.quit_app)
         settings_action.triggered.connect(self.open_settings)
         new_chapter_action.triggered.connect(self.addChapter)
+        llm_settings_action.triggered.connect(self.open_llm_settings)
         self.closeEvent = self.quit_app
 
         # Initialize default prompts
         self.chapter_summary_prompt = "Please summarize this chapter in 200 words or less, focusing on the information that's important for writing future scenes in this story."
         self.scene_generation_prompt = "Please write out this scene."
+
+    def open_llm_settings(self):
+        dialog = LLMSettingsDialog(self)
+        if dialog.exec_():
+            self.llm_manager.save_llm_config()
+            # Update generate menus in scenes and chapters
+            for i in range(self.chapterLayout.count()):
+                chapter = self.chapterLayout.itemAt(i).widget()
+                # Update chapter generate menus
+                generate_menu = chapter.layout.itemAt(2).itemAt(1).widget().menu()
+                generate_menu.clear()
+                for llm in self.llm_manager.llms:
+                    action = QAction(f'Generate with {llm.name}', self)
+                    action.triggered.connect(lambda checked, llm=llm: chapter.generateSummary(llm))
+                    generate_menu.addAction(action)
+                # Update scenes generate menus
+                for j in range(chapter.scenesLayout.count()):
+                    scene = chapter.scenesLayout.itemAt(j).widget()
+                    generate_menu = scene.generate_menu
+                    generate_menu.clear()
+                    for llm in self.llm_manager.llms:
+                        action = QAction(f'Generate with {llm.name}', self)
+                        action.triggered.connect(lambda checked, llm=llm: scene.generateScene(llm))
+                        generate_menu.addAction(action)
 
     def open_settings(self):
         dialog = SettingsDialog(self)
@@ -403,7 +461,7 @@ class StoryWriter(QMainWindow):
             self.scene_generation_prompt = dialog.get_scene_generation_prompt()
 
     def newStory(self):
-        # TODO reomve old to create a new story
+        # TODO remove old to create a new story
         pass
 
     def quit_app(self, event=None):
@@ -415,6 +473,8 @@ class StoryWriter(QMainWindow):
     def loadStory(self):
         file_dialog = QFileDialog()
         file_path, _ = file_dialog.getOpenFileName()
+        if not file_path:
+            return
         jsonData = None
         with open(file_path, "r") as f:
             jsonData = json.load(f)
@@ -456,7 +516,7 @@ class StoryWriter(QMainWindow):
                 sceneData["summaryTokens"] = scene.summary.tokenCount
                 sceneData["text"] = scene.text.toPlainText()
                 sceneData["textTokens"] = scene.text.tokenCount
-        
+
         with open(filename + ".json", "w") as f:
             f.write(json.dumps(jsonData))
 
@@ -474,7 +534,7 @@ class StoryWriter(QMainWindow):
                 for i in range(chapter.scenesLayout.count()):
                     scene = chapter.scenesLayout.itemAt(i).widget()
                     f.write(scene.text.toPlainText())
-                    f.write("\n\n")             
+                    f.write("\n\n")
 
 # Create and show the form
 form = StoryWriter()
@@ -482,3 +542,4 @@ form.show()
 
 # Run the main Qt loop
 app.exec_()
+

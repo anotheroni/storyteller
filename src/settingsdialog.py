@@ -16,6 +16,11 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Title", self.title)
         self.title.setToolTip("The title of the story. This is also currently used as the filename when saving or exporting the story.")
 
+        # Genre input
+        self.genre = QLineEdit()
+        form_layout.addRow("Genre", self.genre)
+        self.genre.setToolTip("Specify the genre of your story.")
+
         # Summary input
         self.summary = TokenizedTextEdit(parent.global_worker)
         self.summary.setText(self.storywriter.summary)
@@ -45,6 +50,7 @@ class SettingsDialog(QDialog):
     def accept(self):
         self.storywriter.storytitle = self.title.text()
         self.storywriter.summary = self.summary.toPlainText()
+        self.storywriter.genre = self.genre
         super().accept()
 
     def get_chapter_summary_prompt(self):
