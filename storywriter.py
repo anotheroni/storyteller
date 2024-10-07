@@ -3,8 +3,8 @@ import re
 import sys
 import traceback
 
-from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QMenuBar, QAction, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy, QMessageBox, QComboBox, QToolButton, QMenu
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QMenuBar, QAction, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QGridLayout, QFileDialog, QFrame, QScrollArea, QSizePolicy, QMessageBox, QComboBox, QToolButton, QMenu
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtGui import QFocusEvent
 import queue
 
@@ -12,6 +12,7 @@ from src.llm import CountTask, GenerateTask, LLMManager
 from src.settingsdialog import SettingsDialog
 from src.tokenizedtextedit import TokenizedTextEdit
 from src.llmsettingsdialog import LLMSettingsDialog
+from src.storyobjectdialog import StoryObjectDialog
 
 def excepthook(exc_type, exc_value, exc_tb):
     tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -68,7 +69,7 @@ class Scene(QWidget):
         self.parentChapter.scenesLayout.addWidget(self)
 
         self.textLayout = QGridLayout()
-        self.summary = TokenizedTextEdit(self.global_worker)
+        self.summary = TokenizedTextEdit(self.global_worker, self.parentChapter.parentStory.llm_manager)
         self.summary.setPlaceholderText("Scene Summary")
         self.summary.setMinimumHeight(100)
         self.textLayout.addWidget(QLabel("Scene Summary"),0,0)
@@ -77,7 +78,7 @@ class Scene(QWidget):
         self.summary.setToolTip("""This text is sent to the LLM to tell it what this scene is supposed to depict.
 It is also used when generating later scenes in this chapter as part of the summary of how the chapter has progressed to this point.""")
 
-        self.text = TokenizedTextEdit(self.global_worker)
+        self.text = TokenizedTextEdit(self.global_worker, self.parentChapter.parentStory.llm_manager)
         self.text.setPlaceholderText("Text")
         self.text.setStyleSheet(exportedStylesheet)
         self.text.setToolTip("""This is the finished output text for this story.""")
@@ -154,6 +155,12 @@ It is also used when generating later scenes in this chapter as part of the summ
             prompt = prompt + "\n\nGeneral background information: " + story.summary.toPlainText()
         if len(story.genre.text()) > 0:
             prompt = prompt + "\n\nGenre: " + story.genre.text()
+        # Include story objects in the prompt
+        if story.story_objects:
+            prompt += "\n\nStory Objects:"
+            for obj in story.story_objects:
+                prompt += f"\n- {obj['name']}: {obj['short_desc']}"
+
         prompt = prompt + "\n\nThe story so far has had the following major events happen:"
         for c in range(chapter_index + 1):
             chapter = story.chapterLayout.itemAt(c).widget()
@@ -230,7 +237,7 @@ class Chapter(QFrame):
 
         self.layout.addLayout(title)
 
-        self.summary = TokenizedTextEdit(self.parentStory.global_worker)
+        self.summary = TokenizedTextEdit(self.parentStory.global_worker, self.parentStory.llm_manager)
         self.summary.setPlaceholderText('Previous Chapter Summary')
         self.summary.setMinimumHeight(100)
         self.summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -389,6 +396,8 @@ class StoryWriter(QMainWindow):
         settings_menu.addAction(settings_action)
         new_chapter_action = QAction('Add a new Chapter', self)
         settings_menu.addAction(new_chapter_action)
+        story_objects_action = QAction('Story Objects', self)
+        settings_menu.addAction(story_objects_action)
 
         # Create main layout
         layout = QVBoxLayout()
@@ -415,15 +424,19 @@ class StoryWriter(QMainWindow):
         load_action.triggered.connect(self.loadStory)
         save_action.triggered.connect(self.saveStory)
         export_action.triggered.connect(self.exportStory)
+        llm_settings_action.triggered.connect(self.open_llm_settings)
         exit_action.triggered.connect(self.quit_app)
         settings_action.triggered.connect(self.open_settings)
         new_chapter_action.triggered.connect(self.addChapter)
-        llm_settings_action.triggered.connect(self.open_llm_settings)
+        story_objects_action.triggered.connect(self.open_story_objects)
         self.closeEvent = self.quit_app
 
         # Initialize default prompts
         self.chapter_summary_prompt = "Please summarize this chapter in 200 words or less, focusing on the information that's important for writing future scenes in this story."
         self.scene_generation_prompt = "Please write out this scene."
+
+        # Initialize story objects
+        self.story_objects = []
 
     def open_llm_settings(self):
         dialog = LLMSettingsDialog(self)
@@ -532,6 +545,14 @@ class StoryWriter(QMainWindow):
                     scene = chapter.scenesLayout.itemAt(i).widget()
                     f.write(scene.text.toPlainText())
                     f.write("\n\n")
+
+
+
+    def open_story_objects(self):
+        dialog = StoryObjectDialog(self)
+        dialog.exec_()
+        # Story objects are managed within the dialog
+
 
 # Create and show the form
 form = StoryWriter()
