@@ -1,12 +1,19 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QWidget, QFileDialog, QMessageBox, QComboBox, QScrollArea, QFormLayout
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QWidget,
+    QFileDialog, QMessageBox, QComboBox, QScrollArea, QFormLayout, QRadioButton, QButtonGroup
+)
+from PyQt5.QtCore import Qt
+
 from src.llm import LLMBackend
 import json
+import os
 
 class LLMSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.storywriter = parent
         self.setWindowTitle("LLM Settings")
+        self.resize(600, 500)
         self.layout = QVBoxLayout(self)
 
         # Scroll area for LLM configurations

@@ -89,8 +89,6 @@ It is also used when generating later scenes in this chapter as part of the summ
         self.layout.addLayout(self.textLayout)
 
         # Optimized buttons
-        buttons_layout = QHBoxLayout()
-
         # Move/Remove Dropdown next to Scene Summary label
         self.move_remove_button = QToolButton()
         self.move_remove_button.setText('Options')
@@ -277,7 +275,6 @@ You can use the AI to automatically generate a summary of the previous chapter's
         self.add_scene_button = QPushButton("Add a new scene to this chapter")
         self.add_scene_button.clicked.connect(self.addScene)
         buttons.addWidget(self.add_scene_button)
-
         self.delete_button = QPushButton('Remove this chapter')
         self.delete_button.clicked.connect(self.deleteChapter)
         buttons.addWidget(self.delete_button)
@@ -345,12 +342,12 @@ You can use the AI to automatically generate a summary of the previous chapter's
 def sanitize_filename(filename):
     return re.sub(r'(?u)[^-\w.]', '_', filename)
 
-
 class StoryWriter(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle('Story Writer')
+        self.resize(800, 600)
 
         self.storytitle = ""
         self.summary = ""
@@ -375,16 +372,16 @@ class StoryWriter(QMainWindow):
         load_action = QAction("Load", self)
         save_action = QAction("Save", self)
         export_action = QAction("Export", self)
+        llm_settings_action = QAction("LLM Settings", self)
         exit_action = QAction("Exit", self)
-        llm_settings_action = QAction("LLM", self)
 
         # Connect actions to menu items
         file_menu.addAction(new_action)
         file_menu.addAction(load_action)
         file_menu.addAction(save_action)
         file_menu.addAction(export_action)
-        file_menu.addAction(exit_action)
         file_menu.addAction(llm_settings_action)
+        file_menu.addAction(exit_action)
 
         # Story menu
         settings_menu = menubar.addMenu("Story")
