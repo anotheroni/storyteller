@@ -28,8 +28,8 @@ class StoryObjectDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.tags_edit = QLineEdit()
-        self.short_desc_edit = TokenizedTextEdit(self.storywriter.global_worker, self.storywriter.llm_manager)
-        self.long_desc_edit = TokenizedTextEdit(self.storywriter.global_worker, self.storywriter.llm_manager)
+        self.short_desc_edit = TokenizedTextEdit(self.storywriter.global_worker)
+        self.long_desc_edit = TokenizedTextEdit(self.storywriter.global_worker)
 
         self.details_layout.addWidget(QLabel("Name:"))
         self.details_layout.addWidget(self.name_edit)

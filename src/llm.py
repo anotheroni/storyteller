@@ -2,56 +2,62 @@ import requests
 import json
 import openai
 
+from src.llm_kobold import LLMKobold
+from src.llm_openai import LLMOpenAI
+
 from PyQt5.QtCore import QObject
-
-class LLMBackend:
-    def __init__(self, name, address, system_prompt, llm_type='Kobold'):
-        self.name = name
-        self.address = address
-        self.system_prompt = system_prompt
-        self.type = llm_type  # 'Kobold' or 'OpenAI'
-
-    def test_connection(self):
-        try:
-            if self.type == 'Kobold':
-                response = requests.get(f"{self.address}/api/v1/version")
-                return response.status_code == 200
-            elif self.type == 'OpenAI':
-                openai.api_key = self.address  # In this context, address holds the API key
-                openai.Model.list()
-                return True
-        except Exception as e:
-            print(f"Connection test failed: {e}")
-            return False
 
 class LLMManager:
     def __init__(self):
         self.llms = []
+        self.token_count_llm_name = None
 
     def load_llm_config(self):
         try:
             with open('llm_config.json', 'r') as f:
                 data = json.load(f)
-                for llm_data in data:
-                    llm = LLMBackend(llm_data['name'], llm_data['address'], llm_data['system_prompt'], llm_data.get('type', 'Kobold'))
-                    if llm.test_connection():
+                for llm_data in data.get('llms', []):
+                    llm = self.create_llm(llm_data)
+                    if llm and llm.test_connection():
                         self.llms.append(llm)
-                    else:
-                        QMessageBox.warning(None, "LLM Connection Error", f"Failed to connect to LLM {llm.name}")
+                self.token_count_llm_name = data.get('token_count_llm_name', None)
         except FileNotFoundError:
             pass  # No config file yet
 
+    def create_llm(self, llm_data):
+        llm_type = llm_data.get('type', 'Kobold')
+        if llm_type == 'Kobold':
+            return LLMKobold(
+                llm_data['name'],
+                llm_data.get('address', ''),
+                llm_data.get('system_prompt', '')
+            )
+        elif llm_type == 'OpenAI':
+            return LLMOpenAI(
+                llm_data['name'],
+                llm_data.get('api_key', ''),
+                llm_data.get('system_prompt', ''),
+                llm_data.get('use_env_var', False)
+            )
+        return None
+
     def save_llm_config(self):
-        data = []
-        for llm in self.llms:
-            data.append({
-                'name': llm.name,
-                'address': llm.address,
-                'system_prompt': llm.system_prompt,
-                'type': llm.type
-            })
+        data = {
+            'llms': [
+                {
+                    'name': llm.name,
+                    'system_prompt': llm.system_prompt,
+                    'type': llm.__class__.__name__,
+                    'address': getattr(llm, 'address', ''),
+                    'api_key': getattr(llm, 'api_key', ''),
+                    'use_env_var': getattr(llm, 'use_env_var', False)
+                } for llm in self.llms
+            ],
+            'token_count_llm_name': self.token_count_llm_name
+        }
         with open('llm_config.json', 'w') as f:
             json.dump(data, f)
+
 
 class CountTask(QObject):
     def __init__(self, data, source, llm_backend):

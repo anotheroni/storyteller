@@ -69,7 +69,7 @@ class Scene(QWidget):
         self.parentChapter.scenesLayout.addWidget(self)
 
         self.textLayout = QGridLayout()
-        self.summary = TokenizedTextEdit(self.global_worker, self.parentChapter.parentStory.llm_manager)
+        self.summary = TokenizedTextEdit(self.global_worker)
         self.summary.setPlaceholderText("Scene Summary")
         self.summary.setMinimumHeight(100)
         self.textLayout.addWidget(QLabel("Scene Summary"),0,0)
@@ -78,7 +78,7 @@ class Scene(QWidget):
         self.summary.setToolTip("""This text is sent to the LLM to tell it what this scene is supposed to depict.
 It is also used when generating later scenes in this chapter as part of the summary of how the chapter has progressed to this point.""")
 
-        self.text = TokenizedTextEdit(self.global_worker, self.parentChapter.parentStory.llm_manager)
+        self.text = TokenizedTextEdit(self.global_worker)
         self.text.setPlaceholderText("Text")
         self.text.setStyleSheet(exportedStylesheet)
         self.text.setToolTip("""This is the finished output text for this story.""")
@@ -237,7 +237,7 @@ class Chapter(QFrame):
 
         self.layout.addLayout(title)
 
-        self.summary = TokenizedTextEdit(self.parentStory.global_worker, self.parentStory.llm_manager)
+        self.summary = TokenizedTextEdit(self.parentStory.global_worker)
         self.summary.setPlaceholderText('Previous Chapter Summary')
         self.summary.setMinimumHeight(100)
         self.summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -446,7 +446,7 @@ class StoryWriter(QMainWindow):
             for i in range(self.chapterLayout.count()):
                 chapter = self.chapterLayout.itemAt(i).widget()
                 # Update chapter generate menus
-                generate_menu = chapter.layout.itemAt(2).itemAt(1).widget().menu()
+                #generate_menu = chapter.layout.itemAt(2).itemAt(1).widget().menu()
                 generate_menu.clear()
                 for llm in self.llm_manager.llms:
                     action = QAction(f'Generate with {llm.name}', self)

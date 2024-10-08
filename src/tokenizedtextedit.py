@@ -26,6 +26,7 @@ class TokenizedTextEdit(QWidget):
         self.tokenCountLabel = QLabel()
         self.tokenCount = 0
         self.textEdit = CustomTextEdit(self)
+        self.textEdit.setMinimumHeight(100)
         self.layout.addWidget(self.textEdit)
         self.layout.addWidget(self.tokenCountLabel)
 
@@ -33,19 +34,23 @@ class TokenizedTextEdit(QWidget):
         if self.textEdit.toPlainText() != text:
             self.textEdit.setText(text)
             self.updateTokens()
+
     def setPlainText(self, text):
         if self.textEdit.toPlainText() != text:
             self.textEdit.setPlainText(text)
             self.updateTokens()
+
     def setPlaceholderText(self, text):
         return self.textEdit.setPlaceholderText(text)
+
     def getText(self):
         return self.textEdit.toPlainText()
+
     def toPlainText(self):
         return self.textEdit.toPlainText()
 
-    #Bypass token counting when we already know it or it's not relevant
-    #a negative token count triggers an update anyway
+    # Bypass token counting when we already know it or it's not relevant
+    # A negative token count triggers an update anyway
     def setPlainTextAndTokens(self, text, tokens):
         self.textEdit.setPlainText(text)
         if tokens < 0:
@@ -62,4 +67,3 @@ class TokenizedTextEdit(QWidget):
         self.tokenCountLabel.setText("Counting tokens...")
         task = CountTask(self.textEdit.toPlainText(), self)
         self.worker.addTask(task)
-
